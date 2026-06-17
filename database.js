@@ -100,10 +100,13 @@ async function permanentDeleteFolder(id) {
 
 // ─── Files ──────────────────────────────────────────────────────────────────
 
+// Column list WITHOUT file_data (to avoid loading huge blobs in list queries)
+const FILE_COLUMNS = 'id, name, original_name, mime_type, size, folder_id, storage_path, created_at, updated_at, is_trashed, trashed_at';
+
 async function getFiles(folderId) {
   let query = supabase
     .from('files')
-    .select('*')
+    .select(FILE_COLUMNS)
     .eq('is_trashed', false)
     .order('name', { ascending: true });
 
@@ -121,7 +124,7 @@ async function getFiles(folderId) {
 async function getFileById(id) {
   const { data, error } = await supabase
     .from('files')
-    .select('*')
+    .select(FILE_COLUMNS)
     .eq('id', id)
     .single();
 
@@ -132,7 +135,22 @@ async function getFileById(id) {
   return data;
 }
 
-async function createFile(id, name, originalName, mimeType, size, folderId, storagePath) {
+// Get file binary data (base64 string) — only called for download/view
+async function getFileData(id) {
+  const { data, error } = await supabase
+    .from('files')
+    .select('file_data')
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data ? data.file_data : null;
+}
+
+async function createFile(id, name, originalName, mimeType, size, folderId, storagePath, fileDataBase64) {
   const { error } = await supabase
     .from('files')
     .insert({
@@ -143,6 +161,7 @@ async function createFile(id, name, originalName, mimeType, size, folderId, stor
       size,
       folder_id: folderId || null,
       storage_path: storagePath,
+      file_data: fileDataBase64,
     });
 
   if (error) throw error;
@@ -200,7 +219,7 @@ async function getTrashedFolders() {
 async function getTrashedFiles() {
   const { data, error } = await supabase
     .from('files')
-    .select('*')
+    .select(FILE_COLUMNS)
     .eq('is_trashed', true)
     .order('trashed_at', { ascending: false });
 
@@ -225,7 +244,7 @@ async function searchFolders(query) {
 async function searchFiles(query) {
   const { data, error } = await supabase
     .from('files')
-    .select('*')
+    .select(FILE_COLUMNS)
     .eq('is_trashed', false)
     .ilike('name', `%${query}%`)
     .order('name', { ascending: true });
@@ -239,7 +258,7 @@ async function searchFiles(query) {
 async function getRecentFiles() {
   const { data, error } = await supabase
     .from('files')
-    .select('*')
+    .select(FILE_COLUMNS)
     .eq('is_trashed', false)
     .order('updated_at', { ascending: false })
     .limit(20);
@@ -291,7 +310,7 @@ async function getAllChildFolderIds(parentId) {
 async function getFilesInFolder(folderId) {
   const { data, error } = await supabase
     .from('files')
-    .select('*')
+    .select(FILE_COLUMNS)
     .eq('folder_id', folderId);
 
   if (error) throw error;
@@ -323,6 +342,7 @@ module.exports = {
   permanentDeleteFolder,
   getFiles,
   getFileById,
+  getFileData,
   createFile,
   renameFile,
   trashFile,
