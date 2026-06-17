@@ -1,0 +1,8 @@
+Hello Pankaj!
+This is a test file contents inside pCloud.
+If you can see this message in the built-in file viewer overlay, it means:
+1. Double-clicking text files successfully reads and displays them.
+2. The dynamic text fetching and pre-code block rendering is fully functional.
+3. The dark backdrop-blur layout overlays correctly on the application dashboard.
+4. Pressing Escape or clicking the close button will dismiss this modal.
+Enjoy your premium file manager app!
