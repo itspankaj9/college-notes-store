@@ -311,34 +311,6 @@ async function getTotalStorageUsed() {
   return total;
 }
 
-// ─── Supabase Storage ─────────────────────────────────────────────────────
-
-async function uploadFileToStorage(fileBuffer, storagePath, mimeType) {
-  const { data, error } = await supabase.storage
-    .from('pcloud-files')
-    .upload(storagePath, fileBuffer, {
-      contentType: mimeType,
-      upsert: true
-    });
-  if (error) throw error;
-  return data;
-}
-
-async function deleteFileFromStorage(storagePath) {
-  const { data, error } = await supabase.storage
-    .from('pcloud-files')
-    .remove([storagePath]);
-  if (error) throw error;
-  return data;
-}
-
-function getFilePublicUrl(storagePath) {
-  const { data } = supabase.storage
-    .from('pcloud-files')
-    .getPublicUrl(storagePath);
-  return data.publicUrl;
-}
-
 module.exports = {
   supabase,
   initDatabase,
@@ -365,7 +337,4 @@ module.exports = {
   getAllChildFolderIds,
   getFilesInFolder,
   getTotalStorageUsed,
-  uploadFileToStorage,
-  deleteFileFromStorage,
-  getFilePublicUrl,
 };

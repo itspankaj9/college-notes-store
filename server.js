@@ -61,7 +61,8 @@ app.post('/api/auth/login', (req, res) => {
   if (username === adminUser && password === adminPass) {
     res.cookie('pcloud_session', SESSION_TOKEN, {
       httpOnly: true,
-      secure: false, // Set to true if using HTTPS
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       path: '/'
     });
@@ -223,8 +224,9 @@ app.post('/api/files/upload', requireAuth, upload.single('file'), async (req, re
     // Check 1 GB storage limit
     const usedStorage = await db.getTotalStorageUsed();
     if (usedStorage + req.file.size > MAX_STORAGE) {
-      // Delete the uploaded temp file from disk
-      fs.unlinkSync(req.file.path);
+      // Delete the uploaded file from disk
+      const tempPath = path.join(uploadsDir, req.file.filename);
+      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
       return res.status(413).json({
         error: 'Storage limit exceeded. Maximum 1 GB allowed.',
         used: usedStorage,
@@ -235,13 +237,6 @@ app.post('/api/files/upload', requireAuth, upload.single('file'), async (req, re
     const id = uuidv4();
     let folderId = req.body.folderId || null;
     if (folderId === 'null') folderId = null;
-
-    // Read file buffer
-    const fileBuffer = fs.readFileSync(req.file.path);
-    // Upload to Supabase
-    await db.uploadFileToStorage(fileBuffer, req.file.filename, req.file.mimetype);
-    // Delete local temp file
-    fs.unlinkSync(req.file.path);
 
     await db.createFile(
       id,
@@ -257,9 +252,6 @@ app.post('/api/files/upload', requireAuth, upload.single('file'), async (req, re
     res.status(201).json(file);
   } catch (err) {
     console.error('Error uploading file:', err);
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
     res.status(500).json({ error: 'Failed to upload file' });
   }
 });
@@ -303,8 +295,12 @@ app.get('/api/files/:id/download', requireAuth, async (req, res) => {
     const file = await db.getFileById(req.params.id);
     if (!file) return res.status(404).json({ error: 'File not found' });
 
-    const publicUrl = db.getFilePublicUrl(file.storage_path);
-    res.redirect(`${publicUrl}?download=${encodeURIComponent(file.original_name)}`);
+    const filePath = path.resolve(uploadsDir, file.storage_path);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found on disk' });
+    }
+
+    res.download(filePath, file.original_name);
   } catch (err) {
     console.error('Error downloading file:', err);
     res.status(500).json({ error: 'Failed to download file' });
@@ -317,8 +313,14 @@ app.get('/api/files/:id/view', requireAuth, async (req, res) => {
     const file = await db.getFileById(req.params.id);
     if (!file) return res.status(404).json({ error: 'File not found' });
 
-    const publicUrl = db.getFilePublicUrl(file.storage_path);
-    res.redirect(publicUrl);
+    const filePath = path.resolve(uploadsDir, file.storage_path);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found on disk' });
+    }
+
+    res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.original_name)}"`);
+    res.sendFile(filePath);
   } catch (err) {
     console.error('Error viewing file:', err);
     res.status(500).json({ error: 'Failed to view file' });
@@ -363,17 +365,19 @@ app.delete('/api/trash/:id', requireAuth, async (req, res) => {
   try {
     const { type } = req.body;
     if (type === 'folder') {
-      // Delete all files in this folder from Supabase Storage
+      // Delete all files in this folder from disk
       const files = await db.getFilesInFolder(req.params.id);
       for (const file of files) {
-        await db.deleteFileFromStorage(file.storage_path);
+        const filePath = path.resolve(uploadsDir, file.storage_path);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         await db.permanentDeleteFile(file.id);
       }
       await db.permanentDeleteFolder(req.params.id);
     } else {
       const file = await db.getFileById(req.params.id);
       if (file) {
-        await db.deleteFileFromStorage(file.storage_path);
+        const filePath = path.resolve(uploadsDir, file.storage_path);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         await db.permanentDeleteFile(req.params.id);
       }
     }
